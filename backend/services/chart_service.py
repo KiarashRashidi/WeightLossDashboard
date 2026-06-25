@@ -142,8 +142,7 @@ def generate_progress_chart(patient, measurements) -> str | None:
         waters   = [m.water_kg for m in measurements]
 
         fig = plt.figure(figsize=(14, 8))
-        patient_title = _p(f"گزارش پیشرفت — {patient.name}")
-        fig.suptitle(patient_title, fontsize=14, fontweight="bold", y=1.01, color="#1a202c")
+        fig.suptitle(f"Progress Report — {patient.name}", fontsize=14, fontweight="bold", y=1.01, color="#1a202c")
 
         gs = GridSpec(2, 6, figure=fig, hspace=0.45, wspace=0.5)
         ax_w   = fig.add_subplot(gs[0, 0:2])
@@ -153,11 +152,11 @@ def generate_progress_chart(patient, measurements) -> str | None:
         ax_wat = fig.add_subplot(gs[1, 3:5])
 
         panels = [
-            (ax_w,   weights,  "وزن (kg)",            PALETTE["weight"]),
-            (ax_bmi, bmis,     "شاخص توده بدنی",      "#7b2d8b"),
-            (ax_fat, fat_pcts, "درصد چربی (%)",       PALETTE["fat"]),
-            (ax_mus, muscles,  "عضله (kg)",            PALETTE["muscle"]),
-            (ax_wat, waters,   "آب بدن (kg)",          PALETTE["water"]),
+            (ax_w,   weights,  "Weight (kg)",     PALETTE["weight"]),
+            (ax_bmi, bmis,     "BMI",             "#7b2d8b"),
+            (ax_fat, fat_pcts, "Body Fat (%)",    PALETTE["fat"]),
+            (ax_mus, muscles,  "Muscle (kg)",     PALETTE["muscle"]),
+            (ax_wat, waters,   "Water (kg)",      PALETTE["water"]),
         ]
         for ax, vals, title, color in panels:
             _plot_line(ax, dates, vals, jalali, title, color)
@@ -183,8 +182,8 @@ def generate_progress_chart(patient, measurements) -> str | None:
 def _plot_line(ax, dates, values, jalali_labels, title, color):
     valid = [(d, v, j) for d, v, j in zip(dates, values, jalali_labels) if v is not None]
     if not valid:
-        ax.set_title(_p(title))
-        ax.text(0.5, 0.5, _p("داده‌ای وجود ندارد"), ha="center", va="center",
+        ax.set_title(title)
+        ax.text(0.5, 0.5, "No data", ha="center", va="center",
                 transform=ax.transAxes, color="#a0aec0")
         return
 
@@ -192,15 +191,21 @@ def _plot_line(ax, dates, values, jalali_labels, title, color):
     ax.plot(xs, ys, marker="o", color=color, linewidth=2.2, markersize=5, zorder=3)
     ax.fill_between(xs, ys, alpha=0.12, color=color)
 
+    # Dynamic y-axis: pad by 20% of the data range so fluctuations are visible
+    y_min, y_max = min(ys), max(ys)
+    y_range = y_max - y_min if y_max != y_min else max(abs(y_max) * 0.05, 1.0)
+    pad = y_range * 0.20
+    ax.set_ylim(y_min - pad, y_max + pad)
+
     # Highlight first and last
     ax.scatter([xs[0], xs[-1]], [ys[0], ys[-1]], color=color, s=60, zorder=4)
 
     if len(ys) >= 2:
         delta = ys[-1] - ys[0]
         sign = "+" if delta >= 0 else ""
-        ax.set_title(_p(f"{title}  ({sign}{delta:.1f})"), fontsize=10, color="#2d3748")
+        ax.set_title(f"{title}  ({sign}{delta:.1f})", fontsize=10, color="#2d3748")
     else:
-        ax.set_title(_p(title), fontsize=10, color="#2d3748")
+        ax.set_title(title, fontsize=10, color="#2d3748")
 
     # Jalali x-axis labels (numbers only — work with any font)
     n = len(xs)
