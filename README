@@ -1,0 +1,202 @@
+
+# Project Name: SmartWeigh MedDash (Weight Loss Patient Management System)
+## 1. Project Overview & Objectives
+**SmartWeigh MedDash** is a professional, elegant, web-based medical dashboard designed for doctors managing weight-loss and bariatric patients. The system centers on capturing body composition metrics seamlessly via a Eufy C1 Smart Scale connected to the doctor's PC via Bluetooth. 
+
+To maximize patient engagement and revisit frequency, the system automates personalized, AI-generated progress reports (via **GapGPT**) and delivers them directly to patients through the **Bale Messenger API**. The app prioritizes absolute robustness, ensuring that Bluetooth drops, API failures, or missing data are handled gracefully without interrupting the clinic's workflow.
+
+## 2. Tech Stack
+*   **Backend:** Python with Flask (REST APIs, Bluetooth background thread, Cron jobs).
+*   **Frontend:** React.js (Component-based UI, responsive design, Error Boundaries).
+*   **Database:** SQLite (for simple deployment) or PostgreSQL using SQLAlchemy.
+*   **Hardware Integration:** Python `bleak` library utilizing the custom reverse-engineered Eufy script.
+*   **Messaging Integration:** Bale Messenger API (Exclusive communication channel).
+*   **AI Integration:** GapGPT API (`gapgpt-qwen-3.5`).
+*   **Data Visualization:** React charting (Recharts/Chart.js) for the dashboard; Python `matplotlib`/`seaborn` for generating static plot images to send via Bale.
+*   **Security:** JWT (JSON Web Tokens) for doctor authentication.
+
+## 3. System Robustness, Logging, & Error Handling
+Because this system operates in a live medical environment and relies on external APIs and Bluetooth, the following constraints are strictly enforced:
+*   **Comprehensive Logging:** The Flask backend must utilize Python's `logging` module (`INFO` for standard events, `ERROR`/`EXCEPTION` for stack traces). Every API call (GapGPT, Bale) and Bluetooth event must be logged.
+*   **Graceful Degradation:** If the LLM API fails, the user must be notified and given a manual "Retry" button. If Bluetooth disconnects, the UI must display a clear "Scale Disconnected" state with a "Re-scan" button.
+*   **Frontend Error Boundaries:** React must wrap key components in Error Boundaries so the dashboard never crashes completely.
+*   **API Retries:** All external requests (Bale, GapGPT) must implement exponential backoff/retry logic for network instability.
+
+## 4. Core Workflows
+
+### 4.1. Patient Registration (First Visit)
+1. The patient opens the designated Bale bot and presses start.
+2. The bot sends the `chat_id` to the Flask backend.
+3. The React Dashboard alerts the doctor: "New Unregistered User Detected."
+4. The doctor inputs **Full Name, Height ($cm$), and Age**. The profile is saved, securing the link between the clinical profile and the Bale chat ID.
+
+### 4.2. Patient Revisit & Measurement
+1. The doctor searches for a returning patient and opens their profile.
+2. The patient steps on the Eufy C1 Smart Scale.
+3. The Flask backend (running the `bleak` listener) captures the hex packets, decodes weight and impedance, and calculates: Weight, Muscle Mass, Fat Mass, and Water.
+4. Data is pushed to the frontend (via WebSocket or short-polling).
+5. *Error Handling:* If the scale sleeps or fails, the UI presents a distinct "Retry Connection" action.
+
+### 4.3. Analysis & GapGPT Report Generation
+1. The dashboard displays the new metrics in a historical table.
+2. The doctor uses checkboxes to configure the output:
+    *   **[ ] Generate Progress Plot** (Triggers Matplotlib graph creation).
+    *   **[ ] Generate GapGPT Report** (Triggers the LLM).
+3. The doctor can select from preset prompts or write a custom one.
+4. The prompt and patient history are sent to GapGPT.
+
+### 4.4. Message Preview & Sending
+1. The UI renders a preview modal showing the combined Matplotlib image and the GapGPT text response.
+2. The doctor reviews, edits the text if necessary, and clicks "Confirm & Send."
+3. The system dispatches the message via the Bale API. 
+
+## 5. Advanced Features & Retention Tools
+
+### 5.1. Authentication & Security
+*   **JWT Login:** A simple, secure login screen strictly for the doctor. All Flask API routes (except the incoming Bale webhook) must be protected by `@jwt_required()`. Patient medical data is kept entirely private.
+
+### 5.2. Data Export Functionality
+*   **CSV/Excel Export:** The dashboard features an "Export Patient History" button on individual patient profiles, allowing the doctor to download a clean CSV or Excel sheet of all recorded metrics for external record-keeping.
+
+### 5.3. Automated Appointment Reminders
+*   **Cron Jobs:** A backend scheduler (e.g., APScheduler) runs daily to check patient last-visit dates.
+*   **Doctor Pings:** If a patient is inactive, the backend pushes a notification to the dashboard: *"Patient X hasn’t visited in 3 weeks, click here to send a reminder."* The doctor can send a 1-click preset message via Bale.
+
+### 5.4. Bulk & Template Messaging
+*   **Targeting & Filtering:** A dedicated dashboard view allows the doctor to filter patients (e.g., "Patients who haven't visited in 30 days" or "All active patients").
+*   **Action:** The doctor selects multiple patients via checkboxes and sends bulk templates (e.g., *"It’s time for your monthly check-in!"* or holiday greetings) to drive retention.
+
+### 5.5. Analytics Views
+*   **Doctor Insights:** The dashboard homepage features top-level KPIs: Total Active Patients, Average Clinic-Wide Weight Loss, and Upcoming Expected Revisits.
+*   **Patient Insights:** The system can be configured to occasionally send patients automated mini-summaries or "fun facts" about their progress via the Bale bot to keep them motivated between visits.
+
+## 6. Mandatory Code Implementations
+*(Note to LLM: Do NOT use generic mockups for the following modules. Use these exact snippets.)*
+
+### 6.1. GapGPT Integration (LLM Module)
+```python
+from openai import OpenAI
+import logging
+
+# Setup Logger
+logger = logging.getLogger(__name__)
+
+def generate_patient_report(prompt, data):
+    try:
+        # Exact GapGPT client configuration required
+        client = OpenAI(
+            api_key="YOUR_API_KEY",
+            base_url="https://api.gapgpt.app/v1"
+        )
+        
+        response = client.responses.create(
+            model="gapgpt-qwen-3.5",
+            input=f"{prompt}\nData: {data}"
+        )
+        return response.output_text
+    except Exception as e:
+        logger.error(f"GapGPT API Error: {e}", exc_info=True)
+        return None # UI must handle None by showing a Retry button
+```
+
+### 6.2. Bale Messenger Integration
+```python
+import requests
+import logging
+
+logger = logging.getLogger(__name__)
+
+def send_bale_message(bot_token, chat_id, message):
+    base_url = f"https://tapi.bale.ai/bot{bot_token}/sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": message
+    }
+    
+    try:
+        response = requests.post(base_url, json=payload, timeout=10)
+        response.raise_for_status() 
+        logger.info(f"Bale message successfully sent to {chat_id}")
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error sending Bale message to {chat_id}: {e}", exc_info=True)
+        return None # System must alert the doctor of failure
+```
+
+### 6.3. Eufy C1 Bluetooth Logic (`bleak`)
+This logic must be integrated into a reliable Flask background thread (e.g., using `threading` and `queue.Queue`).
+
+```python
+import asyncio
+from bleak import BleakScanner, BleakClient
+import logging
+
+logger = logging.getLogger(__name__)
+
+TARGET_NAME = "T9146"
+NOTIFY_UUID = "0000fff4-0000-1000-8000-00805f9b34fb"
+
+# Variables injected from DB during measurement phase
+# HEIGHT_CM, AGE, MALE 
+
+def body_composition(weight, impedance, height_cm, age, is_male):
+    if impedance is None or impedance <= 0:
+        return None, None, None
+
+    height_m = height_cm / 100
+    bmi = weight / (height_m ** 2)
+
+    if is_male:
+        body_fat = 1.20 * bmi + 0.23 * age - 10.8 - 5.4
+    else:
+        body_fat = 1.20 * bmi + 0.23 * age - 5.4
+
+    BODY_FAT_OFFSET = 1.5
+    body_fat += BODY_FAT_OFFSET
+    body_fat = max(5, min(body_fat, 45))
+
+    fat_mass = weight * body_fat / 100
+    lean_mass = weight - fat_mass
+
+    EUFY_MUSCLE_FACTOR = 0.95
+    muscle = lean_mass * EUFY_MUSCLE_FACTOR
+    water = lean_mass * 0.73
+
+    return body_fat, water, muscle
+
+def decode_impedance(data):
+    if len(data) < 8: return None
+    pair_56 = (data[6] << 8) | data[5]
+    pair_67 = (data[7] << 8) | data[6]
+    candidates = []
+    for raw in [pair_56, pair_67]:
+        for divisor in [10, 50, 100]:
+            value = raw / divisor
+            if 300 <= value <= 800:
+                candidates.append(value)
+    if not candidates: return None
+    return min(candidates, key=lambda x: abs(x - 520))
+
+def decode_packet(data):
+    if data == b"\xf3\x00":
+        return "finished"
+    if len(data) < 8 or data[0] != 0xCF or data[1] == 0x00:
+        return None
+    weight_raw = (data[4] << 8) | data[3]
+    weight = weight_raw / 100
+    if weight < 20 or weight > 250: return None
+    impedance = decode_impedance(data)
+    if impedance is None: return None
+    return weight, impedance
+
+# LLM Note: Wrap the Asyncio BLE scanner in a robust try/except block 
+# to ensure it auto-restarts if the PC Bluetooth adapter resets.
+```
+
+## 7. Phased Implementation Plan
+*   **Phase 1: Backend Foundation & Auth.** Setup Flask, SQLAlchemy, Logging, JWT Authentication, and basic CRUD endpoints.
+*   **Phase 2: Bale Bot & Linking.** Implement Bale webhook integration. Allow patients to register and link their `chat_id` to the database.
+*   **Phase 3: Bluetooth Subsystem.** Implement the `bleak` background worker with robust auto-reconnection and data queueing to the frontend.
+*   **Phase 4: Dashboard UI.** Build React SPA with Error Boundaries, Patient Tables, and the Doctor Analytics Dashboard.
+*   **Phase 5: AI & Visualization.** Integrate the GapGPT API and Matplotlib charting. Build the Message Preview UI.
+*   **Phase 6: Advanced Retention Tools.** Implement the CSV Export, bulk messaging filters, and the background APScheduler cron jobs for appointment reminders.
