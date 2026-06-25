@@ -1,10 +1,38 @@
 import logging
 from flask import Blueprint, request, jsonify, current_app
+from flask_jwt_extended import jwt_required
 
 from models import db, Patient, UnregisteredUser, Notification
 
 logger = logging.getLogger(__name__)
 bale_bp = Blueprint("bale", __name__)
+
+
+@bale_bp.route("/register-webhook", methods=["POST"])
+@jwt_required()
+def register_webhook():
+    """Re-registers the Bale webhook. Call this after changing the bot token."""
+    from services.bale_service import register_webhook as _register, get_webhook_info
+    token = current_app.config.get("BALE_BOT_TOKEN", "")
+    webhook_url = current_app.config.get("BALE_WEBHOOK_URL", "")
+    if not token:
+        return jsonify({"ok": False, "error": "BALE_BOT_TOKEN not configured"}), 400
+    if not webhook_url:
+        return jsonify({"ok": False, "error": "BALE_WEBHOOK_URL not configured"}), 400
+    result = _register(token, webhook_url)
+    info = get_webhook_info(token)
+    return jsonify({"setWebhook": result, "webhookInfo": info})
+
+
+@bale_bp.route("/webhook-info", methods=["GET"])
+@jwt_required()
+def webhook_info():
+    """Returns the currently registered webhook info from Bale."""
+    from services.bale_service import get_webhook_info
+    token = current_app.config.get("BALE_BOT_TOKEN", "")
+    if not token:
+        return jsonify({"ok": False, "error": "BALE_BOT_TOKEN not configured"}), 400
+    return jsonify(get_webhook_info(token))
 
 
 @bale_bp.route("/webhook", methods=["POST"])

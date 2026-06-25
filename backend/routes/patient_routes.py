@@ -94,6 +94,7 @@ def update_patient(patient_id):
 def delete_patient(patient_id):
     patient = Patient.query.get_or_404(patient_id)
     patient.is_active = False
+    patient.bale_chat_id = None
     db.session.commit()
     logger.info("Patient %d deactivated.", patient_id)
     return jsonify({"message": "Patient deactivated."})

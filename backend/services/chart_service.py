@@ -153,11 +153,11 @@ def generate_progress_chart(patient, measurements) -> str | None:
         ax_wat = fig.add_subplot(gs[1, 3:5])
 
         panels = [
-            (ax_w,   weights,  _p("وزن (kg)"),            PALETTE["weight"]),
-            (ax_bmi, bmis,     _p("شاخص توده بدنی"),      "#7b2d8b"),
-            (ax_fat, fat_pcts, _p("درصد چربی (%)"),       PALETTE["fat"]),
-            (ax_mus, muscles,  _p("عضله (kg)"),            PALETTE["muscle"]),
-            (ax_wat, waters,   _p("آب بدن (kg)"),          PALETTE["water"]),
+            (ax_w,   weights,  "وزن (kg)",            PALETTE["weight"]),
+            (ax_bmi, bmis,     "شاخص توده بدنی",      "#7b2d8b"),
+            (ax_fat, fat_pcts, "درصد چربی (%)",       PALETTE["fat"]),
+            (ax_mus, muscles,  "عضله (kg)",            PALETTE["muscle"]),
+            (ax_wat, waters,   "آب بدن (kg)",          PALETTE["water"]),
         ]
         for ax, vals, title, color in panels:
             _plot_line(ax, dates, vals, jalali, title, color)
@@ -183,7 +183,7 @@ def generate_progress_chart(patient, measurements) -> str | None:
 def _plot_line(ax, dates, values, jalali_labels, title, color):
     valid = [(d, v, j) for d, v, j in zip(dates, values, jalali_labels) if v is not None]
     if not valid:
-        ax.set_title(title)
+        ax.set_title(_p(title))
         ax.text(0.5, 0.5, _p("داده‌ای وجود ندارد"), ha="center", va="center",
                 transform=ax.transAxes, color="#a0aec0")
         return
@@ -198,9 +198,9 @@ def _plot_line(ax, dates, values, jalali_labels, title, color):
     if len(ys) >= 2:
         delta = ys[-1] - ys[0]
         sign = "+" if delta >= 0 else ""
-        ax.set_title(f"{title}  ({sign}{delta:.1f})", fontsize=10, color="#2d3748")
+        ax.set_title(_p(f"{title}  ({sign}{delta:.1f})"), fontsize=10, color="#2d3748")
     else:
-        ax.set_title(title, fontsize=10, color="#2d3748")
+        ax.set_title(_p(title), fontsize=10, color="#2d3748")
 
     # Jalali x-axis labels (numbers only — work with any font)
     n = len(xs)

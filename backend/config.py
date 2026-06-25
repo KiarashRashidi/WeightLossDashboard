@@ -15,6 +15,7 @@ class Config:
 
     GAPGPT_API_KEY = os.getenv("GAPGPT_API_KEY", "")
     BALE_BOT_TOKEN = os.getenv("BALE_BOT_TOKEN", "")
+    BALE_WEBHOOK_URL = os.getenv("BALE_WEBHOOK_URL", "")
     SCHEDULER_INACTIVE_DAYS = int(os.getenv("SCHEDULER_INACTIVE_DAYS", "21"))
 
     ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "doctor")

@@ -47,6 +47,7 @@ def create_app():
         _seed_admin(app)
         _start_scheduler(app)
         _start_bluetooth_service(app)
+        _register_bale_webhook(app)
 
     logger.info("SmartWeigh MedDash backend started.")
     return app
@@ -64,6 +65,16 @@ def _seed_admin(app):
 def _start_scheduler(app):
     from services.scheduler_service import start_scheduler
     start_scheduler(app, socketio)
+
+
+def _register_bale_webhook(app):
+    token = app.config.get("BALE_BOT_TOKEN", "")
+    webhook_url = app.config.get("BALE_WEBHOOK_URL", "")
+    if token and webhook_url:
+        from services.bale_service import register_webhook
+        register_webhook(token, webhook_url)
+    else:
+        logger.warning("Bale webhook not registered: BALE_BOT_TOKEN or BALE_WEBHOOK_URL missing.")
 
 
 def _start_bluetooth_service(app):

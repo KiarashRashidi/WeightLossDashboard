@@ -10,6 +10,35 @@ MAX_RETRIES = 3
 RETRY_DELAYS = [2, 4, 8]  # exponential backoff in seconds
 
 
+def register_webhook(bot_token: str, webhook_url: str) -> dict | None:
+    """Registers (or re-registers) the webhook URL with Bale for the given bot token."""
+    url = f"https://tapi.bale.ai/bot{bot_token}/setWebhook"
+    try:
+        response = requests.post(url, json={"url": webhook_url}, timeout=10)
+        response.raise_for_status()
+        result = response.json()
+        if result.get("ok"):
+            logger.info("Bale webhook registered successfully: %s", webhook_url)
+        else:
+            logger.error("Bale setWebhook returned not-ok: %s", result)
+        return result
+    except requests.exceptions.RequestException as e:
+        logger.error("Failed to register Bale webhook: %s", e, exc_info=True)
+        return None
+
+
+def get_webhook_info(bot_token: str) -> dict | None:
+    """Returns current webhook info from Bale API."""
+    url = f"https://tapi.bale.ai/bot{bot_token}/getWebhookInfo"
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        logger.error("Failed to get Bale webhook info: %s", e, exc_info=True)
+        return None
+
+
 def send_bale_message(bot_token: str, chat_id: str, message: str) -> dict | None:
     """
     Sends a text message via the Bale Messenger API.
