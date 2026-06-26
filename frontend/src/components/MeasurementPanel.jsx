@@ -126,10 +126,9 @@ const OCR_FIELDS = [
 
 // ── Extended field form rows (shared by Manual entry) ────────────────────────
 const EXTENDED_FIELDS = [
-  { key: 'body_fat_pct', label: 'Body Fat (%)',      step: '0.1', min: '2', max: '70',  unit: '%'  },
-  { key: 'muscle_mass',  label: 'Muscle Mass (kg)',  step: '0.1', min: '1', max: '150', unit: 'kg' },
-  { key: 'water_pct',    label: 'Body Water (%)',    step: '0.1', min: '1', max: '100', unit: '%'  },
-  { key: 'fat_mass',     label: 'Body Fat Mass (kg)',step: '0.1', min: '0', max: '150', unit: 'kg' },
+  { key: 'body_fat_pct', label: 'Body Fat (%)',     step: '0.1', min: '2', max: '70',  unit: '%'  },
+  { key: 'muscle_mass',  label: 'Muscle Mass (kg)', step: '0.1', min: '1', max: '150', unit: 'kg' },
+  { key: 'water_pct',    label: 'Body Water (%)',   step: '0.1', min: '1', max: '100', unit: '%'  },
 ];
 
 function ExtendedFields({ form, onChange, cols = 2 }) {
@@ -468,7 +467,7 @@ export default function MeasurementPanel({ patient, socket, onMeasurementReady }
                 <MetricCard label="BMI"         value={bleBmi}                unit=""   color={bmiColor(bleBmi)} badge={bmiCategory(bleBmi)} extra={<BMIBar bmi={bleBmi} />} />
                 <MetricCard label="Body Fat"    value={liveData.body_fat_pct} unit="%"  color="#e53e3e" />
                 <MetricCard label="Muscle Mass" value={liveData.muscle_mass}  unit="kg" color="#38a169" />
-                <MetricCard label="Body Water"  value={liveData.water_kg}     unit="kg" color="#3182ce" />
+                <MetricCard label="Body Water"  value={liveData.water_pct}    unit="%" color="#3182ce" />
                 <BmiLegend />
               </div>
 

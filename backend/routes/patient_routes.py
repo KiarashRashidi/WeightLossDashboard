@@ -140,17 +140,26 @@ def add_measurement(patient_id):
         water_kg  = _f("water_kg")
     else:
         from services.bluetooth_service import body_composition
-        fat_pct, water_kg, muscle_kg = body_composition(
+        metrics = body_composition(
             weight=float(weight),
             impedance=data.get("impedance"),
             height_cm=patient.height_cm,
             age=patient.age,
             is_male=patient.is_male,
-        )
-        fat_mass = float(weight) * fat_pct / 100 if fat_pct else None
+        ) or {}
+        fat_pct   = metrics.get("body_fat_pct")
+        fat_mass  = metrics.get("fat_mass")
+        muscle_kg = metrics.get("muscle_mass")
+        water_kg  = metrics.get("water_kg")
+        water_pct = metrics.get("water_pct")
+        # Also populate extended fields from BLE metrics if not already in payload
+        for key in ("bmr", "bone_mass", "visceral_fat"):
+            if data.get(key) is None and key in metrics:
+                data[key] = metrics[key]
 
     # If water_pct provided but water_kg not, derive water_kg
-    water_pct = _f("water_pct")
+    if "water_pct" not in locals() or water_pct is None:
+        water_pct = _f("water_pct")
     if water_kg is None and water_pct is not None:
         water_kg = round(float(weight) * water_pct / 100, 2)
 

@@ -14,33 +14,132 @@ TARGET_NAME = "T9146"
 NOTIFY_UUID = "0000fff4-0000-1000-8000-00805f9b34fb"
 
 
-# --- Exact body-composition formulas from project spec ---
+# --- BIA body-composition formulas (reverse-engineered from Holtek chip used in Eufy C1 / Xiaomi Mi Scale) ---
+# Source: https://github.com/wiecosystem/Bluetooth/blob/master/sandbox/huami.health.scale2/body_metrics.py
+
+def _clamp(value, lo, hi):
+    return max(lo, min(value, hi))
+
+
+def _lbm_coefficient(weight, height_cm, age, impedance):
+    """Lean Body Mass coefficient — combines height, weight, age, impedance."""
+    lbm = (height_cm * 9.058 / 100) * (height_cm / 100)
+    lbm += weight * 0.32 + 12.226
+    lbm -= impedance * 0.0068
+    lbm -= age * 0.0542
+    return lbm
+
 
 def body_composition(weight, impedance, height_cm, age, is_male):
-    """Returns (body_fat_pct, water_kg, muscle_kg). Returns (None, None, None) if impedance invalid."""
+    """
+    Returns a dict of body metrics.  Returns None if impedance is invalid.
+    Formulas: Holtek BIA chip algorithm (Eufy C1 / Xiaomi Mi Scale family).
+    """
     if impedance is None or impedance <= 0:
-        return None, None, None
+        return None
 
-    height_m = height_cm / 100
-    bmi = weight / (height_m ** 2)
+    sex = "male" if is_male else "female"
+    lbm = _lbm_coefficient(weight, height_cm, age, impedance)
 
-    if is_male:
-        body_fat = 1.20 * bmi + 0.23 * age - 10.8 - 5.4
+    # --- Body Fat % ---
+    if sex == "female" and age <= 49:
+        const = 9.25
+    elif sex == "female" and age > 49:
+        const = 7.25
     else:
-        body_fat = 1.20 * bmi + 0.23 * age - 5.4
+        const = 0.8
 
-    BODY_FAT_OFFSET = 1.5
-    body_fat += BODY_FAT_OFFSET
-    body_fat = max(5, min(body_fat, 45))
+    if sex == "male" and weight < 61:
+        coeff = 0.98
+    elif sex == "female" and weight > 60:
+        coeff = 1.03 * 0.96 if height_cm > 160 else 0.96
+    elif sex == "female" and weight < 50:
+        coeff = 1.03 * 1.02 if height_cm > 160 else 1.02
+    else:
+        coeff = 1.0
 
-    fat_mass = weight * body_fat / 100
-    lean_mass = weight - fat_mass
+    fat_pct = (1.0 - (((lbm - const) * coeff) / weight)) * 100
+    if fat_pct > 63:
+        fat_pct = 75
+    fat_pct = _clamp(fat_pct, 5, 75)
 
-    EUFY_MUSCLE_FACTOR = 0.95
-    muscle = lean_mass * EUFY_MUSCLE_FACTOR
-    water = lean_mass * 0.73
+    # --- Water % ---
+    water_pct = (100 - fat_pct) * 0.7
+    water_coeff = 1.02 if water_pct <= 50 else 0.98
+    water_pct = water_pct * water_coeff
+    if water_pct >= 65:
+        water_pct = 75
+    water_pct = _clamp(water_pct, 35, 75)
 
-    return body_fat, water, muscle
+    # --- Bone Mass (kg) ---
+    base = 0.245691014 if sex == "female" else 0.18016894
+    bone_mass = (base - lbm * 0.05158) * -1
+    bone_mass += 0.1 if bone_mass > 2.2 else -0.1
+    if sex == "female" and bone_mass > 5.1:
+        bone_mass = 8
+    elif sex == "male" and bone_mass > 5.2:
+        bone_mass = 8
+    bone_mass = _clamp(bone_mass, 0.5, 8)
+
+    # --- Muscle Mass (kg) ---
+    muscle_mass = weight - (fat_pct / 100 * weight) - bone_mass
+    if sex == "female" and muscle_mass >= 84:
+        muscle_mass = 120
+    elif sex == "male" and muscle_mass >= 93.5:
+        muscle_mass = 120
+    muscle_mass = _clamp(muscle_mass, 10, 120)
+
+    # --- BMR (kcal/day) ---
+    if sex == "female":
+        bmr = 864.6 + weight * 10.2036 - height_cm * 0.39336 - age * 6.204
+        if bmr > 2996:
+            bmr = 5000
+    else:
+        bmr = 877.8 + weight * 14.916 - height_cm * 0.726 - age * 8.976
+        if bmr > 2322:
+            bmr = 5000
+    bmr = _clamp(bmr, 500, 10000)
+
+    # --- BMI ---
+    bmi = _clamp(weight / ((height_cm / 100) ** 2), 10, 90)
+
+    # --- Visceral Fat index ---
+    if sex == "female":
+        if weight > (13 - height_cm * 0.5) * -1:
+            subsubcalc = (height_cm * 1.45 + height_cm * 0.1158 * height_cm) - 120
+            subcalc = weight * 500 / subsubcalc
+            vfal = (subcalc - 6) + age * 0.07
+        else:
+            subcalc = 0.691 + height_cm * -0.0024 + height_cm * -0.0024
+            vfal = ((height_cm * 0.027 - subcalc * weight) * -1) + age * 0.07 - age
+    else:
+        if height_cm < weight * 1.6:
+            subcalc = (height_cm * 0.4 - height_cm * (height_cm * 0.0826)) * -1
+            vfal = (weight * 305 / (subcalc + 48)) - 2.9 + age * 0.15
+        else:
+            subcalc = 0.765 + height_cm * -0.0015
+            vfal = ((height_cm * 0.143 - weight * subcalc) * -1) + age * 0.15 - 5.0
+    visceral_fat = _clamp(vfal, 1, 50)
+
+    # --- Metabolic Age ---
+    if sex == "female":
+        met_age = (-1.1165 * height_cm + 1.5784 * weight + 0.4615 * age + 0.0415 * impedance + 83.2548)
+    else:
+        met_age = (-0.7471 * height_cm + 0.9161 * weight + 0.4184 * age + 0.0517 * impedance + 54.2267)
+    metabolic_age = _clamp(met_age, 15, 80)
+
+    return {
+        "body_fat_pct": round(fat_pct, 1),
+        "fat_mass": round(weight * fat_pct / 100, 2),
+        "muscle_mass": round(muscle_mass, 2),
+        "bone_mass": round(bone_mass, 2),
+        "water_pct": round(water_pct, 1),
+        "water_kg": round(weight * water_pct / 100, 2),
+        "bmr": round(bmr),
+        "bmi": round(bmi, 1),
+        "visceral_fat": round(visceral_fat, 1),
+        "metabolic_age": round(metabolic_age, 1),
+    }
 
 
 def decode_impedance(data):
@@ -189,7 +288,7 @@ class BluetoothService:
         weight, impedance = result
         p = self._session_params
 
-        fat_pct, water_kg, muscle_kg = body_composition(
+        metrics = body_composition(
             weight=weight,
             impedance=impedance,
             height_cm=p.get("height_cm") or 170,
@@ -197,17 +296,13 @@ class BluetoothService:
             is_male=p.get("is_male", True),
         )
 
-        fat_mass = round(weight * fat_pct / 100, 2) if fat_pct else None
-
         self._latest = {
             "patient_id": p.get("patient_id"),
             "weight": round(weight, 2),
             "impedance": round(impedance, 1),
-            "body_fat_pct": round(fat_pct, 1) if fat_pct else None,
-            "fat_mass": fat_mass,
-            "muscle_mass": round(muscle_kg, 2) if muscle_kg else None,
-            "water_kg": round(water_kg, 2) if water_kg else None,
+            **(metrics or {}),
         }
 
         self._socketio.emit("bluetooth:data", self._latest)
-        logger.info("BLE data: weight=%.2f kg, body_fat=%.1f%%", weight, fat_pct or 0)
+        fat_pct = (metrics or {}).get("body_fat_pct", 0)
+        logger.info("BLE data: weight=%.2f kg, body_fat=%.1f%%", weight, fat_pct)
