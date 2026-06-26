@@ -71,6 +71,18 @@ class Measurement(db.Model):
     body_fat_pct = db.Column(db.Float)
     recorded_at = db.Column(db.DateTime, default=datetime.utcnow)
     notes = db.Column(db.Text)
+    # Extended body composition fields (from smart scale screenshots / manual entry)
+    water_pct = db.Column(db.Float)
+    bmr = db.Column(db.Float)
+    bone_mass = db.Column(db.Float)
+    visceral_fat = db.Column(db.Float)
+    protein = db.Column(db.Float)
+    skeletal_muscle_mass = db.Column(db.Float)
+    subcutaneous_fat = db.Column(db.Float)
+    lean_body_mass = db.Column(db.Float)
+    body_age = db.Column(db.Integer)
+    body_type = db.Column(db.String(50))
+    input_method = db.Column(db.String(20), default="manual")  # bluetooth | ocr | manual
 
     @property
     def bmi(self):
@@ -110,6 +122,18 @@ class Measurement(db.Model):
             "body_fat_pct": self.body_fat_pct,
             "recorded_at": self.recorded_at.isoformat(),
             "notes": self.notes,
+            # Extended fields
+            "water_pct": self.water_pct,
+            "bmr": self.bmr,
+            "bone_mass": self.bone_mass,
+            "visceral_fat": self.visceral_fat,
+            "protein": self.protein,
+            "skeletal_muscle_mass": self.skeletal_muscle_mass,
+            "subcutaneous_fat": self.subcutaneous_fat,
+            "lean_body_mass": self.lean_body_mass,
+            "body_age": self.body_age,
+            "body_type": self.body_type,
+            "input_method": self.input_method,
         }
 
 

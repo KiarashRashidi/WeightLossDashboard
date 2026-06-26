@@ -122,15 +122,22 @@ def add_measurement(patient_id):
     if weight is None:
         return jsonify({"error": "Weight is required."}), 400
 
-    # Use directly provided body composition values (manual entry) if present,
+    def _f(key):
+        v = data.get(key)
+        return float(v) if v not in (None, "") else None
+
+    def _i(key):
+        v = data.get(key)
+        return int(v) if v not in (None, "") else None
+
+    # Use directly provided body composition values (manual/OCR) if present,
     # otherwise compute from impedance via the BLE formula.
     direct_fat_pct = data.get("body_fat_pct")
     if direct_fat_pct is not None:
         fat_pct   = float(direct_fat_pct)
-        fat_mass  = float(data["fat_mass"]) if data.get("fat_mass") not in (None, "") \
-                    else round(float(weight) * fat_pct / 100, 2)
-        muscle_kg = float(data["muscle_mass"]) if data.get("muscle_mass") not in (None, "") else None
-        water_kg  = float(data["water_kg"])    if data.get("water_kg")    not in (None, "") else None
+        fat_mass  = _f("fat_mass") or round(float(weight) * fat_pct / 100, 2)
+        muscle_kg = _f("muscle_mass")
+        water_kg  = _f("water_kg")
     else:
         from services.bluetooth_service import body_composition
         fat_pct, water_kg, muscle_kg = body_composition(
@@ -142,6 +149,15 @@ def add_measurement(patient_id):
         )
         fat_mass = float(weight) * fat_pct / 100 if fat_pct else None
 
+    # If water_pct provided but water_kg not, derive water_kg
+    water_pct = _f("water_pct")
+    if water_kg is None and water_pct is not None:
+        water_kg = round(float(weight) * water_pct / 100, 2)
+
+    input_method = data.get("input_method", "manual")
+    if data.get("impedance") and not data.get("body_fat_pct"):
+        input_method = "bluetooth"
+
     measurement = Measurement(
         patient_id=patient_id,
         weight=float(weight),
@@ -150,6 +166,18 @@ def add_measurement(patient_id):
         water_kg=round(water_kg, 2) if water_kg else None,
         body_fat_pct=round(fat_pct, 1) if fat_pct else None,
         notes=data.get("notes"),
+        input_method=input_method,
+        # Extended fields
+        water_pct=round(water_pct, 1) if water_pct else None,
+        bmr=_f("bmr"),
+        bone_mass=_f("bone_mass"),
+        visceral_fat=_f("visceral_fat"),
+        protein=_f("protein"),
+        skeletal_muscle_mass=_f("skeletal_muscle_mass"),
+        subcutaneous_fat=_f("subcutaneous_fat"),
+        lean_body_mass=_f("lean_body_mass"),
+        body_age=_i("body_age"),
+        body_type=data.get("body_type") or None,
     )
 
     if data.get("recorded_at"):
@@ -160,7 +188,7 @@ def add_measurement(patient_id):
 
     db.session.add(measurement)
     db.session.commit()
-    logger.info("Measurement saved for patient %d: %.2f kg", patient_id, float(weight))
+    logger.info("Measurement saved for patient %d: %.2f kg [%s]", patient_id, float(weight), input_method)
     return jsonify(measurement.to_dict()), 201
 
 
@@ -171,16 +199,30 @@ def update_measurement(patient_id, m_id):
     m = Measurement.query.filter_by(id=m_id, patient_id=patient_id).first_or_404()
     data = request.get_json(silent=True) or {}
 
+    def _set_float(field):
+        if field in data:
+            v = data[field]
+            setattr(m, field, float(v) if v not in (None, "") else None)
+
+    def _set_int(field):
+        if field in data:
+            v = data[field]
+            setattr(m, field, int(v) if v not in (None, "") else None)
+
     if "weight" in data and data["weight"] is not None:
         m.weight = float(data["weight"])
-    if "body_fat_pct" in data:
-        m.body_fat_pct = float(data["body_fat_pct"]) if data["body_fat_pct"] not in (None, "") else None
-    if "fat_mass" in data:
-        m.fat_mass = float(data["fat_mass"]) if data["fat_mass"] not in (None, "") else None
-    if "muscle_mass" in data:
-        m.muscle_mass = float(data["muscle_mass"]) if data["muscle_mass"] not in (None, "") else None
-    if "water_kg" in data:
-        m.water_kg = float(data["water_kg"]) if data["water_kg"] not in (None, "") else None
+
+    for field in (
+        "body_fat_pct", "fat_mass", "muscle_mass", "water_kg", "water_pct",
+        "bmr", "bone_mass", "visceral_fat", "protein",
+        "skeletal_muscle_mass", "subcutaneous_fat", "lean_body_mass",
+    ):
+        _set_float(field)
+
+    _set_int("body_age")
+
+    if "body_type" in data:
+        m.body_type = data["body_type"] or None
     if "notes" in data:
         m.notes = data["notes"] or None
     if "recorded_at" in data and data["recorded_at"]:

@@ -32,6 +32,7 @@ def create_app():
     from routes.messaging_routes import messaging_bp
     from routes.bale_webhook import bale_bp
     from routes.notification_routes import notification_bp
+    from routes.ocr_routes import ocr_bp
     from analytics_routes import analytics_bp
 
     app.register_blueprint(auth_bp, url_prefix="/api/auth")
@@ -40,6 +41,7 @@ def create_app():
     app.register_blueprint(messaging_bp, url_prefix="/api/messaging")
     app.register_blueprint(bale_bp, url_prefix="/api/bale")
     app.register_blueprint(notification_bp, url_prefix="/api/notifications")
+    app.register_blueprint(ocr_bp, url_prefix="/api/ocr")
     app.register_blueprint(analytics_bp, url_prefix="/api/analytics")
 
     with app.app_context():
