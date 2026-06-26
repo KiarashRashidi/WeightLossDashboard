@@ -58,7 +58,7 @@ export default function ReportModal({ patient, measurements, onClose }) {
         include_chart:   sendItems.chart,
         include_table:   sendItems.table,
         include_report:  sendItems.report,
-      });
+      }, { timeout: 120000 });
       setReport(res.data);
       setEditedText(res.data.report_text || '');
       setStep('preview');

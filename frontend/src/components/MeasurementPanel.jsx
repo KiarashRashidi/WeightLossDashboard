@@ -126,18 +126,10 @@ const OCR_FIELDS = [
 
 // ── Extended field form rows (shared by Manual entry) ────────────────────────
 const EXTENDED_FIELDS = [
-  { key: 'body_fat_pct',        label: 'Body Fat (%)',           step: '0.1', min: '2',  max: '70',   unit: '%'   },
-  { key: 'muscle_mass',         label: 'Muscle Mass (kg)',       step: '0.1', min: '1',  max: '150',  unit: 'kg'  },
-  { key: 'water_pct',           label: 'Body Water (%)',         step: '0.1', min: '1',  max: '100',  unit: '%'   },
-  { key: 'fat_mass',            label: 'Body Fat Mass (kg)',     step: '0.1', min: '0',  max: '150',  unit: 'kg'  },
-  { key: 'lean_body_mass',      label: 'Lean Body Mass (kg)',    step: '0.1', min: '1',  max: '200',  unit: 'kg'  },
-  { key: 'bmr',                 label: 'BMR (kcal)',             step: '1',   min: '500',max: '6000', unit: 'kcal'},
-  { key: 'bone_mass',           label: 'Bone Mass (kg)',         step: '0.01',min: '0.5',max: '10',   unit: 'kg'  },
-  { key: 'visceral_fat',        label: 'Visceral Fat',           step: '0.1', min: '1',  max: '60',   unit: ''    },
-  { key: 'protein',             label: 'Protein (%)',            step: '0.1', min: '0',  max: '50',   unit: '%'   },
-  { key: 'skeletal_muscle_mass',label: 'Skeletal Muscle (kg)',   step: '0.1', min: '1',  max: '100',  unit: 'kg'  },
-  { key: 'subcutaneous_fat',    label: 'Subcutaneous Fat (%)',   step: '0.1', min: '0',  max: '60',   unit: '%'   },
-  { key: 'body_age',            label: 'Body Age (yrs)',         step: '1',   min: '10', max: '120',  unit: 'yrs', isInt: true },
+  { key: 'body_fat_pct', label: 'Body Fat (%)',      step: '0.1', min: '2', max: '70',  unit: '%'  },
+  { key: 'muscle_mass',  label: 'Muscle Mass (kg)',  step: '0.1', min: '1', max: '150', unit: 'kg' },
+  { key: 'water_pct',    label: 'Body Water (%)',    step: '0.1', min: '1', max: '100', unit: '%'  },
+  { key: 'fat_mass',     label: 'Body Fat Mass (kg)',step: '0.1', min: '0', max: '150', unit: 'kg' },
 ];
 
 function ExtendedFields({ form, onChange, cols = 2 }) {
@@ -646,14 +638,8 @@ export default function MeasurementPanel({ patient, socket, onMeasurementReady }
                 onChange={(key, val) => setManualForm(f => ({ ...f, [key]: val }))}
               />
 
-              {/* Body Type + Date */}
+              {/* Date & Time */}
               <div className="form-row">
-                <div className="form-group">
-                  <label className="form-label">Body Type</label>
-                  <input className="form-input" type="text" placeholder="e.g. Average"
-                    value={manualForm.body_type}
-                    onChange={e => setManualForm(f => ({ ...f, body_type: e.target.value }))} />
-                </div>
                 <div className="form-group">
                   <label className="form-label">Date & Time</label>
                   <input className="form-input" type="datetime-local"
