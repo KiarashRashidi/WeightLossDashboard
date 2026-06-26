@@ -1,6 +1,7 @@
 import base64
 import io
 import logging
+import os
 
 import matplotlib
 matplotlib.use("Agg")
@@ -446,7 +447,74 @@ def _cs_bodytype(fat_pct, is_male):
     return _cs("چاق", "alert")
 
 
-# ─── Icon draw functions (40×40 bounding box, ox/oy = top-left corner) ─────────
+# ─── Real icon loading ────────────────────────────────────────────────────────
+# Icons live in  <project_root>/frontend/Icons/
+_ICONS_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "frontend", "Icons",
+)
+
+
+def _load_icon(filename: str, size: int, color: tuple) -> "Image.Image | None":
+    """
+    Load a JPEG icon file, auto-crop to the icon content (left portion),
+    resize to `size`×`size`, and tint with `color`.
+    Returns an RGBA PIL Image ready to paste, or None on failure.
+    """
+    path = os.path.join(_ICONS_DIR, filename)
+    if not os.path.exists(path):
+        logger.warning("Icon not found: %s", path)
+        return None
+    try:
+        import numpy as np
+        from PIL import ImageOps
+
+        src = Image.open(path).convert("RGB")
+        w, h = src.size
+
+        # The icon sits in the left portion; find its bounding box
+        left_half = src.crop((0, 0, w // 2, h))
+        inverted = ImageOps.invert(left_half.convert("L"))
+        bbox = inverted.getbbox()  # bounding box of non-zero (dark) pixels
+
+        if bbox:
+            pad = max(6, size // 8)
+            x1 = max(0, bbox[0] - pad)
+            y1 = max(0, bbox[1] - pad)
+            x2 = min(left_half.width,  bbox[2] + pad)
+            y2 = min(left_half.height, bbox[3] + pad)
+            cropped = left_half.crop((x1, y1, x2, y2))
+        else:
+            cropped = left_half
+
+        # Make square (center on white background)
+        cw, ch = cropped.size
+        side = max(cw, ch)
+        square = Image.new("RGB", (side, side), (255, 255, 255))
+        square.paste(cropped, ((side - cw) // 2, (side - ch) // 2))
+
+        # Resize to target
+        icon_rgb = square.resize((size, size), Image.LANCZOS)
+
+        # Tint: dark pixels → status color, light pixels → transparent
+        gray = np.array(icon_rgb.convert("L"), dtype=np.float32)  # 0=black,255=white
+        alpha = np.clip(255 - gray, 0, 255).astype(np.uint8)
+
+        r, g, b = color
+        rgba = np.zeros((size, size, 4), dtype=np.uint8)
+        rgba[..., 0] = r
+        rgba[..., 1] = g
+        rgba[..., 2] = b
+        rgba[..., 3] = alpha
+
+        return Image.fromarray(rgba, "RGBA")
+
+    except Exception as exc:
+        logger.warning("_load_icon(%s) failed: %s", filename, exc)
+        return None
+
+
+# ─── Fallback icon draw functions (40×40 bounding box, ox/oy = top-left corner) ─
 # All icons are outline/stroke style to match the reference design images.
 # Arc angle convention (PIL): 0°=3-o'clock, clockwise.
 #   0→180 = bottom arc (∪);  180→360 = top arc (∩);  200→340 = narrower top arc.
@@ -542,14 +610,14 @@ def generate_summary_card(patient, measurement) -> str | None:
         wat_st    = _cs_water(water, weight, is_male)
         bt        = _cs_bodytype(fat_pct, is_male)
 
-        # (label, value, unit, status, icon_fn, colored_value)
+        # (label, value, unit, status, icon_file, fallback_fn, colored_value)
         tiles = [
-            (_p("وزن"),          f"{weight:.1f}",                      "kg", weight_st, _ic_weight,   False),
-            ("BMI",               f"{bmi:.1f}" if bmi else "—",          "",  bmi_st,    _ic_bmi,      False),
-            (_p("چربی بدن"),     f"{fat_pct:.1f}" if fat_pct else "—", "%" , fat_st,    _ic_fat,      False),
-            (_p("توده عضلانی"),  f"{muscle:.1f}" if muscle else "—",    "kg", mus_st,    _ic_muscle,   False),
-            (_p("آب بدن"),       f"{water:.1f}"  if water  else "—",    "kg", wat_st,    _ic_water,    False),
-            (_p("تیپ بدنی"),     _p(bt["label"]),                        "",  bt,         _ic_bodytype, True),
+            (_p("وزن"),          f"{weight:.1f}",                       "kg", weight_st, "Weight Icon.jpg",    _ic_weight,   False),
+            ("BMI",               f"{bmi:.1f}" if bmi else "—",           "",  bmi_st,    "BMI Icon.jpg",       _ic_bmi,      False),
+            (_p("چربی بدن"),     f"{fat_pct:.1f}" if fat_pct else "—",  "%",  fat_st,    "Bofy Fat % Icon.jpg",_ic_fat,      False),
+            (_p("توده عضلانی"),  f"{muscle:.1f}" if muscle else "—",     "kg", mus_st,    "Muscle Mass Icon.jpg",_ic_muscle,  False),
+            (_p("آب بدن"),       f"{water:.1f}"  if water  else "—",     "kg", wat_st,    "Water Icon.jpg",     _ic_water,    False),
+            (_p("تیپ بدنی"),     _p(bt["label"]),                         "",  bt,         "Body Type Icon.jpg", _ic_bodytype, True),
         ]
 
         img  = Image.new("RGB", (IMG_W, IMG_H), (241, 245, 249))
@@ -560,7 +628,9 @@ def generate_summary_card(patient, measurement) -> str | None:
         fnt_unit   = _pil_font(13)
         fnt_status = _pil_font(13)
 
-        for idx, (label, value, unit, status, icon_fn, colored_val) in enumerate(tiles):
+        ICON_SIZE = 52  # rendered size in pixels
+
+        for idx, (label, value, unit, status, icon_file, icon_fn, colored_val) in enumerate(tiles):
             row, col = divmod(idx, COLS)
             tx = MARGIN + col * (TILE_W + GAP)
             ty = MARGIN + row * (TILE_H + GAP)
@@ -578,24 +648,29 @@ def generate_summary_card(patient, measurement) -> str | None:
                 [tx, ty, tx+TILE_W, ty+TILE_H],
                 radius=14, fill=(255, 255, 255))
 
-            # Icon (40×40 box at tile+14, tile+14)
-            icon_fn(draw, tx+14, ty+14, line_c)
+            # Icon: real file → tinted image, fallback → drawn shape
+            icon_ox, icon_oy = tx + 10, ty + 10
+            icon_img = _load_icon(icon_file, ICON_SIZE, line_c)
+            if icon_img:
+                img.paste(icon_img, (icon_ox, icon_oy), icon_img)
+            else:
+                icon_fn(draw, icon_ox + 6, icon_oy + 6, line_c)
 
             # Metric label (small, gray, right of icon)
-            draw.text((tx+60, ty+26), label, fill=(156, 163, 175), font=fnt_label)
+            draw.text((tx + 70, ty + 26), label, fill=(156, 163, 175), font=fnt_label)
 
-            # Colored straight line below icon
-            draw.line([(tx+14, ty+62), (tx+TILE_W-14, ty+62)],
+            # Colored accent line below icon
+            draw.line([(tx+14, ty+70), (tx+TILE_W-14, ty+70)],
                       fill=line_c, width=3)
 
             # Value + unit
             if colored_val:
-                draw.text((tx+14, ty+74), value, fill=text_c, font=fnt_value)
+                draw.text((tx+14, ty+80), value, fill=text_c, font=fnt_value)
             else:
-                draw.text((tx+14, ty+74), value, fill=(17, 24, 39), font=fnt_value)
+                draw.text((tx+14, ty+80), value, fill=(17, 24, 39), font=fnt_value)
                 if unit:
                     vw, _ = _text_size(draw, value, fnt_value)
-                    draw.text((tx+14+vw+4, ty+93), unit,
+                    draw.text((tx+14+vw+4, ty+99), unit,
                               fill=(107, 114, 128), font=fnt_unit)
                 draw.text(
                     (tx+14, ty+TILE_H-34), _p(status["label"]),
