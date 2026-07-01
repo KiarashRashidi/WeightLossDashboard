@@ -7,6 +7,7 @@ import logging
 import threading
 
 from bleak import BleakScanner, BleakClient
+from bleak.exc import BleakCharacteristicNotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -194,7 +195,7 @@ class BluetoothService:
         return self._latest
 
     def start_scan(self, patient_id=None, height_cm=None, age=None, is_male=True):
-        if self._status in ("scanning", "connected"):
+        if self._thread and self._thread.is_alive():
             logger.warning("Scan already running, ignoring start_scan().")
             return
 
@@ -248,8 +249,21 @@ class BluetoothService:
                 self._set_status("connected")
                 logger.info("Connecting to %s (%s)...", device.name, device.address)
 
-                async with BleakClient(device) as client:
-                    await client.start_notify(NOTIFY_UUID, self._on_notification)
+                async with BleakClient(device, timeout=40.0) as client:
+                    # WinRT sometimes returns before GATT table is fully populated;
+                    # brief pause + retry prevents intermittent fff4-not-found errors.
+                    await asyncio.sleep(1.0)
+                    for attempt in range(1, 4):
+                        try:
+                            await client.start_notify(NOTIFY_UUID, self._on_notification)
+                            break
+                        except BleakCharacteristicNotFoundError:
+                            if attempt == 3:
+                                raise
+                            logger.warning(
+                                "GATT characteristic not ready (attempt %d/3), retrying in 2s...", attempt
+                            )
+                            await asyncio.sleep(2.0)
                     logger.info("Listening for scale data...")
 
                     while not self._stop_event.is_set():
