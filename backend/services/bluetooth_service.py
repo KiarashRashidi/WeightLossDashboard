@@ -241,19 +241,32 @@ class BluetoothService:
 
     async def _scan_and_connect(self):
         logger.info("Starting BLE scan for '%s'...", TARGET_NAME)
+        known_address = None  # cached after first scan; avoids re-scanning after services-changed
 
         while not self._stop_event.is_set():
             try:
-                device = await self._find_device()
-                if device is None:
-                    logger.warning("Scale '%s' not found. Retrying in 5s...", TARGET_NAME)
-                    await asyncio.sleep(5)
-                    continue
+                if known_address is None:
+                    device = await self._find_device()
+                    if device is None:
+                        logger.warning("Scale '%s' not found. Retrying in 5s...", TARGET_NAME)
+                        await asyncio.sleep(5)
+                        continue
+                    known_address = device.address
+                    target = device
+                else:
+                    target = known_address  # BleakClient accepts address strings directly
 
                 self._set_status("connected")
-                logger.info("Connecting to %s (%s)...", device.name, device.address)
+                logger.info("Connecting to %s...", known_address)
 
-                async with BleakClient(device, timeout=40.0) as client:
+                services_changed = False
+
+                def _on_services_changed(_):
+                    nonlocal services_changed
+                    services_changed = True
+                    logger.info("GATT services changed on %s — will reconnect immediately.", known_address)
+
+                async with BleakClient(target, timeout=40.0, services_changed_callback=_on_services_changed) as client:
                     # WinRT sometimes returns before GATT table is fully populated;
                     # brief pause + retry prevents intermittent fff4-not-found errors.
                     await asyncio.sleep(1.0)
@@ -276,9 +289,19 @@ class BluetoothService:
                             break
                         await asyncio.sleep(0.5)
 
+                if services_changed:
+                    # The scale changed its GATT table (normal pairing transition).
+                    # Reconnect to the cached address immediately — no rescan needed.
+                    self._set_status("scanning")
+                    continue
+
+                # Normal/unexpected disconnect — forget the address and rescan.
+                known_address = None
+
             except Exception:
                 logger.exception("BLE error — will retry in 5s.")
                 self._set_status("scanning")
+                known_address = None
                 await asyncio.sleep(5)
 
         self._set_status("idle")
