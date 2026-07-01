@@ -200,8 +200,16 @@ class BluetoothService:
 
     def start_scan(self, patient_id=None, height_cm=None, age=None, is_male=True):
         if self._thread and self._thread.is_alive():
-            logger.warning("Scan already running, ignoring start_scan().")
-            return
+            if not self._stop_event.is_set():
+                logger.warning("Scan already running, ignoring start_scan().")
+                return
+            # Previous thread is winding down after a stop — wait for it to exit
+            # so the new thread starts with a clean slate.
+            logger.info("Waiting for previous scan thread to exit...")
+            self._thread.join(timeout=8.0)
+            if self._thread.is_alive():
+                logger.error("Previous scan thread did not stop in time — cannot start.")
+                return
 
         self._session_params = {
             "patient_id": patient_id,
@@ -304,7 +312,9 @@ class BluetoothService:
                 known_address = None
                 await asyncio.sleep(5)
 
-        self._set_status("idle")
+        # Only reset to idle if no new thread has taken over since this one stopped.
+        if self._thread is threading.current_thread():
+            self._set_status("idle")
 
     async def _find_device(self):
         devices = await BleakScanner.discover(timeout=8.0)
