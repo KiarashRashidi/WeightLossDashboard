@@ -162,8 +162,12 @@ def decode_impedance(data):
 def decode_packet(data):
     if data == b"\xf3\x00":
         return "finished"
-    if len(data) < 8 or data[0] != 0xCF or data[1] == 0x00:
+    # T9146 packets are 0xCF-prefixed, at least 10 bytes.
+    # data[9] == 0x00 means measurement is stabilized/final (per eufylife-ble-client protocol).
+    if len(data) < 10 or data[0] != 0xCF:
         return None
+    if data[9] != 0x00:
+        return None  # still measuring — not the final reading
     weight_raw = (data[4] << 8) | data[3]
     weight = weight_raw / 100
     if weight < 20 or weight > 250:
@@ -287,12 +291,16 @@ class BluetoothService:
         return None
 
     def _on_notification(self, sender, data: bytearray):
-        result = decode_packet(bytes(data))
+        raw = bytes(data)
+        logger.debug("BLE raw packet: %s", raw.hex())
+        result = decode_packet(raw)
 
         if result == "finished":
-            logger.info("Scale measurement finished.")
-            self._set_status("finished")
-            if self._latest:
+            # Sentinel fallback — emit finished only if the final weight packet
+            # was already captured and we haven't emitted finished yet.
+            if self._latest and self._status != "finished":
+                logger.info("Scale measurement finished (sentinel).")
+                self._set_status("finished")
                 self._socketio.emit("bluetooth:finished", self._latest)
             return
 
@@ -317,6 +325,10 @@ class BluetoothService:
             **(metrics or {}),
         }
 
-        self._socketio.emit("bluetooth:data", self._latest)
         fat_pct = (metrics or {}).get("body_fat_pct", 0)
         logger.info("BLE data: weight=%.2f kg, body_fat=%.1f%%", weight, fat_pct)
+        self._socketio.emit("bluetooth:data", self._latest)
+        # Final (stabilized) measurement received — mark complete immediately.
+        # Don't wait for the \xf3\x00 sentinel which can arrive late or be missed.
+        self._set_status("finished")
+        self._socketio.emit("bluetooth:finished", self._latest)
