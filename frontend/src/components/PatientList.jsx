@@ -5,7 +5,7 @@ import ErrorBoundary from './ErrorBoundary';
 
 function RegisterModal({ onClose, onSaved, prefillChatId }) {
   const [form, setForm] = useState({
-    name: '', height_cm: '', age: '', is_male: true,
+    name: '', height_cm: '', age: '', is_male: true, target_weight: '',
     bale_chat_id: prefillChatId || '',
   });
   const [error, setError] = useState('');
@@ -27,6 +27,7 @@ function RegisterModal({ onClose, onSaved, prefillChatId }) {
         ...form,
         height_cm: parseFloat(form.height_cm),
         age: parseInt(form.age),
+        target_weight: form.target_weight ? parseFloat(form.target_weight) : null,
         bale_chat_id: form.bale_chat_id || null,
       });
       if (res.data.bale_chat_id) {
@@ -129,6 +130,11 @@ function RegisterModal({ onClose, onSaved, prefillChatId }) {
                 <option value="male">Male</option>
                 <option value="female">Female</option>
               </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Target / Ideal Weight (kg) <span className="text-muted">(optional)</span></label>
+              <input className="form-input" type="number" min="30" max="300" step="0.1" value={form.target_weight}
+                onChange={e => setForm(f => ({ ...f, target_weight: e.target.value }))} placeholder="e.g. 75" />
             </div>
             <div className="form-group">
               <label className="form-label">Bale Account</label>

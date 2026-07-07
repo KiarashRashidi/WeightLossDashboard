@@ -36,6 +36,7 @@ def create_patient():
     age = data.get("age")
     is_male = data.get("is_male", True)
     bale_chat_id = data.get("bale_chat_id")
+    target_weight = data.get("target_weight")
 
     if not name or not height_cm or not age:
         return jsonify({"error": "Name, height_cm, and age are required."}), 400
@@ -50,6 +51,7 @@ def create_patient():
         height_cm=float(height_cm),
         age=int(age),
         is_male=bool(is_male),
+        target_weight=float(target_weight) if target_weight not in (None, "") else None,
         bale_chat_id=str(bale_chat_id) if bale_chat_id else None,
     )
     db.session.add(patient)
@@ -79,6 +81,10 @@ def update_patient(patient_id):
         patient.age = int(data["age"])
     if "is_male" in data:
         patient.is_male = bool(data["is_male"])
+    if "target_weight" in data:
+        patient.target_weight = (
+            float(data["target_weight"]) if data["target_weight"] not in (None, "") else None
+        )
     if "bale_chat_id" in data:
         patient.bale_chat_id = str(data["bale_chat_id"]) if data["bale_chat_id"] else None
     if "is_active" in data:

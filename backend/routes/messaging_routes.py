@@ -5,7 +5,10 @@ from flask_jwt_extended import jwt_required
 from models import Patient, Measurement
 from services.gapgpt_service import generate_patient_report
 from services.bale_service import send_bale_message, send_bale_photo
-from services.chart_service import generate_progress_chart, generate_table_image, generate_summary_card
+from services.chart_service import (
+    generate_progress_chart, generate_table_image, generate_summary_card, generate_forecast_chart,
+)
+from services.forecast_service import compute_scenarios, format_forecast_summary
 
 logger = logging.getLogger(__name__)
 messaging_bp = Blueprint("messaging", __name__)
@@ -65,22 +68,8 @@ PRESET_PROMPTS = [
     {
         "id": "first_visit",
         "label": "First Visit Welcome",
-        "description": "Warm welcome for new patients — explains each metric, sets realistic expectations, and gives initial lifestyle guidance.",
-        "text": (
-            "You are a compassionate bariatric physician writing in Persian (Farsi) to a patient beginning their "
-            "weight-loss journey at their first clinic visit. Write a professional welcome message that:\n"
-            "1. Warmly welcomes the patient and sincerely acknowledges their decision to prioritize their health\n"
-            "2. Explains each metric being tracked with its clinical significance: weight (overall progress marker), "
-            "body fat percentage (true indicator of fat loss), muscle mass (metabolism protector), "
-            "and body water percentage (indicator of hydration and metabolic health)\n"
-            "3. Describes a realistic and healthy weight-loss trajectory (0.5-1 kg/week) and why slow progress "
-            "is better and more sustainable\n"
-            "4. Provides initial lifestyle foundations: daily protein target (1.2-1.6g/kg body weight), "
-            "hydration goal (2.5-3L water/day), meal timing, and starter activity recommendation\n"
-            "5. Explains the importance of regular follow-up visits and what improvements to expect\n"
-            "6. Closes with a genuinely inspiring statement about the transformative journey ahead\n"
-            "Write in a nurturing, professional tone. 300-350 words in formal Persian."
-        ),
+        "description": "AI writes a short personalized Persian greeting about the patient's specific weight goals, then a predefined general-guidance section is appended automatically.",
+        "text": None,  # composed server-side — see FIRST_VISIT_PROMPT / FIRST_VISIT_GENERAL_TEXT below
     },
     {
         "id": "motivation",
@@ -146,7 +135,72 @@ PRESET_PROMPTS = [
             "Keep it concise (160-200 words), warm, and motivating in formal Persian."
         ),
     },
+    {
+        "id": "forecast_plan",
+        "label": "6-Month Forecast Plan",
+        "description": "AI-narrated 6-month weight forecast across optimistic, normal, and cautious scenarios, based on the patient's actual trend, with a chart and goal-setting explanation.",
+        "text": None,  # not user-editable — see FORECAST_PROMPT below
+    },
 ]
+
+
+FIRST_VISIT_PROMPT = (
+    "You are an expert, compassionate bariatric physician. Your task is to write a warm, personalized "
+    "welcome message to a new patient who is starting a weight-loss medication program.\n\n"
+    "Write the response ENTIRELY in formal, polite, and compassionate Persian (Farsi).\n\n"
+    "Use the given patient data (name, current weight, target/ideal weight, and any specific health "
+    "conditions/notes) to personalize the message. If no target weight is given, speak with confidence "
+    "about reaching a healthy weight without inventing a specific number. If no health conditions/notes "
+    "are given, simply skip that part.\n\n"
+    "Instructions for the message:\n"
+    "1. Greet the patient warmly by name.\n"
+    "2. Congratulate them on taking this brave and important step toward better health.\n"
+    "3. Acknowledge their current weight and their goal weight, expressing strong confidence that you "
+    "will achieve this target together.\n"
+    "4. If specific health conditions are provided, briefly and empathetically mention how this "
+    "weight-loss journey will help improve those specific conditions.\n"
+    "5. Keep the tone highly encouraging, medical, and professional.\n"
+    "6. DO NOT include general advice about diet, exercise, medication side effects, or follow-up "
+    "schedules — that will be provided separately.\n"
+    "7. End the message with exactly this transition sentence, verbatim, as the final line, and add "
+    "nothing after it:\n"
+    "\"در ادامه، چند نکته بسیار مهم وجود دارد که برای موفقیت در این مسیر باید به آن‌ها توجه داشته باشید:\""
+)
+
+FIRST_VISIT_GENERAL_TEXT = (
+    "در حالی که این دارو ابزاری بسیار مؤثر برای کمک به شما جهت رسیدن ایمن به وزن ایده‌آل است، لطفاً به خاطر "
+    "داشته باشید که موفقیت پایدار و طولانی‌مدت در نهایت به تغییرات ماندگار در سبک زندگی بستگی دارد. پایبندی "
+    "به یک رژیم غذایی سالم و متعادل و همچنین داشتن یک برنامه ورزشی منظم برای حفظ نتایج شما کاملاً ضروری "
+    "است.\n\n"
+    "برای کمک به سیستم گوارش و به حداکثر رساندن فواید درمان، اکیداً توصیه می‌کنیم وعده‌های غذایی کوچک و "
+    "مکرر داشته باشید و سعی کنید غذا را به آرامی و کامل بجوید. نوشیدن مایعات کافی در طول روز و افزایش "
+    "تدریجی فیبر دریافتی از اهمیت بالایی برخوردار است. علاوه بر این، لطفاً از مصرف غذاهای چرب، سنگین و "
+    "نوشیدنی‌های گازدار خودداری کنید، زیرا این موارد می‌توانند باعث ناراحتی‌های گوارشی قابل‌توجهی شوند.\n\n"
+    "سلامتی و ایمنی شما بالاترین اولویت ماست. لطفاً حتماً ما را در جریان هرگونه دارو یا مکمل دیگری که در "
+    "حال حاضر مصرف می‌کنید قرار دهید. ما ویزیت‌های دوره‌ای را هر یک ماه یک‌بار تنظیم خواهیم کرد تا روند "
+    "پیشرفت، فشار خون و سطح قند خون شما را به دقت ارزیابی کنیم. در نهایت، با سازگار شدن بدنتان با شرایط "
+    "جدید، لطفاً به علائم خود توجه داشته باشید؛ در صورت تجربه درد شکم، سوءهاضمه، سوزش سر دل مداوم، ریزش "
+    "مو، یا هرگونه واکنش در محل تزریق، حتماً با کلینیک تماس بگیرید تا بتوانیم در سریع‌ترین زمان ممکن به "
+    "آن‌ها رسیدگی کرده و اطمینان حاصل کنیم که مسیر درمان شما در کمال آرامش و راحتی پیش می‌رود."
+)
+
+
+FORECAST_PROMPT = (
+    "You are a bariatric physician writing in Persian (Farsi) to explain a 6-month weight forecast to a patient. "
+    "You are given the patient's measurement history plus THREE pre-computed 6-month projections (optimistic, "
+    "normal, and cautious scenarios) with exact monthly weight milestones — these numbers are already calculated; "
+    "do not invent different numbers, only reference the ones given. Write a message that:\n"
+    "1. States the 6-month goal weight (the 'normal' scenario's final milestone) and frames it as an achievable, "
+    "medically grounded target\n"
+    "2. Explains WHY this specific goal was set — referencing the patient's own recent rate of progress, current "
+    "body composition, and realistic physiological limits of sustainable weight loss\n"
+    "3. Briefly describes what happens along the way in each of the three scenarios (optimistic/normal/cautious) "
+    "using the given monthly milestones, in plain and encouraging language\n"
+    "4. Explains concretely what behaviors move the patient from the cautious path toward the optimistic path "
+    "(adherence, consistency, specific actions)\n"
+    "5. Closes with a motivating statement connecting today's data to the 6-month goal\n"
+    "Use formal, warm Persian. 240-300 words. Do not use markdown formatting."
+)
 
 
 @messaging_bp.route("/templates", methods=["GET"])
@@ -161,6 +215,8 @@ def generate_report():
     data = request.get_json(silent=True) or {}
     patient_id = data.get("patient_id")
     custom_prompt = data.get("prompt", "")
+    template_id    = data.get("template_id")
+    report_type    = data.get("report_type", "standard")
     include_chart   = data.get("include_chart",   True)
     include_table   = data.get("include_table",   True)
     include_report  = data.get("include_report",  True)
@@ -176,14 +232,44 @@ def generate_report():
         .all()
     )
 
+    if report_type == "forecast":
+        if len(measurements) < 2:
+            return jsonify({"error": "Need at least 2 measurements to build a forecast."}), 400
+
+        forecast = compute_scenarios(measurements)
+
+        report_text = None
+        if include_report:
+            history_summary = _build_history_summary(patient, measurements) + "\n\n" + format_forecast_summary(forecast)
+            report_text = generate_patient_report(prompt=FORECAST_PROMPT, data=history_summary)
+            if report_text is None:
+                return jsonify({"error": "GapGPT API failed. Please retry.", "retry": True}), 502
+
+        chart_base64 = generate_forecast_chart(patient, measurements, forecast) if include_chart else None
+
+        return jsonify({
+            "report_text":    report_text,
+            "chart_base64":   chart_base64,
+            "table_base64":   None,
+            "summary_base64": None,
+            "patient_name":   patient.name,
+        })
+
     report_text = None
     if include_report:
-        if not custom_prompt:
-            return jsonify({"error": "prompt is required when include_report is true."}), 400
-        history_summary = _build_history_summary(patient, measurements)
-        report_text = generate_patient_report(prompt=custom_prompt, data=history_summary)
-        if report_text is None:
-            return jsonify({"error": "GapGPT API failed. Please retry.", "retry": True}), 502
+        if template_id == "first_visit":
+            first_visit_data = _build_first_visit_summary(patient, measurements)
+            ai_text = generate_patient_report(prompt=FIRST_VISIT_PROMPT, data=first_visit_data)
+            if ai_text is None:
+                return jsonify({"error": "GapGPT API failed. Please retry.", "retry": True}), 502
+            report_text = ai_text.strip() + "\n\n" + FIRST_VISIT_GENERAL_TEXT
+        else:
+            if not custom_prompt:
+                return jsonify({"error": "prompt is required when include_report is true."}), 400
+            history_summary = _build_history_summary(patient, measurements)
+            report_text = generate_patient_report(prompt=custom_prompt, data=history_summary)
+            if report_text is None:
+                return jsonify({"error": "GapGPT API failed. Please retry.", "retry": True}), 502
 
     chart_base64 = None
     if include_chart and len(measurements) >= 2:
@@ -211,6 +297,7 @@ def generate_report():
 def send_message():
     data = request.get_json(silent=True) or {}
     patient_id = data.get("patient_id")
+    report_type = data.get("report_type", "standard")
     message = data.get("message", "").strip()
     chart_base64   = data.get("chart_base64")
     table_base64   = data.get("table_base64")
@@ -242,7 +329,7 @@ def send_message():
         (sent if result else failed).append("table")
 
     if send_chart and chart_base64:
-        caption = "📈 نمودار پیشرفت"
+        caption = "🔮 نمودار پیش‌بینی ۶ ماهه" if report_type == "forecast" else "📈 نمودار پیشرفت"
         result = send_bale_photo(token, patient.bale_chat_id, chart_base64, caption=caption)
         (sent if result else failed).append("chart")
 
@@ -292,6 +379,18 @@ def bulk_send():
         len(results["sent"]), len(results["failed"]), len(results["no_bale"])
     )
     return jsonify(results)
+
+
+def _build_first_visit_summary(patient, measurements):
+    lines = [f"Patient Name: {patient.name}"]
+    if measurements:
+        latest = measurements[-1]
+        lines.append(f"Current Weight: {latest.weight} kg")
+        if latest.notes:
+            lines.append(f"Specific Health Conditions/Notes: {latest.notes}")
+    if patient.target_weight:
+        lines.append(f"Target/Ideal Weight: {patient.target_weight} kg")
+    return "\n".join(lines)
 
 
 def _build_history_summary(patient, measurements):

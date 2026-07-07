@@ -21,6 +21,7 @@ export default function ReportModal({ patient, measurements, onClose }) {
   const [templates, setTemplates]       = useState([]);
   const [selectedTpl, setSelectedTpl]   = useState(null);
   const [customPrompt, setCustomPrompt] = useState('');
+  const [reportKind, setReportKind]     = useState('standard'); // 'standard' | 'forecast'
   const [sendItems, setSendItems]       = useState({
     summary: measurements.length >= 1,
     table:   true,
@@ -42,9 +43,25 @@ export default function ReportModal({ patient, measurements, onClose }) {
     }).catch(() => {});
   }, []);
 
+  const usingCustomPrompt   = customPrompt.trim().length > 0;
+  const isFirstVisitPreset  = !usingCustomPrompt && selectedTpl?.id === 'first_visit';
   const effectivePrompt = customPrompt.trim() || selectedTpl?.text || '';
   const canGenerate     = sendItems.summary || sendItems.table || sendItems.chart || sendItems.report;
-  const promptNeeded    = sendItems.report && !effectivePrompt;
+  const promptNeeded    = reportKind === 'standard' && sendItems.report && !effectivePrompt && !isFirstVisitPreset;
+
+  const selectKind = (kind) => {
+    setReportKind(kind);
+    if (kind === 'forecast') {
+      setSendItems({ summary: false, table: false, chart: true, report: true });
+    } else {
+      setSendItems({
+        summary: measurements.length >= 1,
+        table:   true,
+        chart:   measurements.length >= 2,
+        report:  true,
+      });
+    }
+  };
 
   const generate = async () => {
     if (promptNeeded) { setError('Please select a template or write a custom prompt.'); return; }
@@ -53,7 +70,10 @@ export default function ReportModal({ patient, measurements, onClose }) {
     try {
       const res = await api.post('/messaging/generate-report', {
         patient_id:      patient.id,
-        prompt:          sendItems.report ? effectivePrompt : '',
+        report_type:     reportKind,
+        prompt:          reportKind === 'standard' && sendItems.report ? effectivePrompt : '',
+        template_id:     reportKind === 'standard' && sendItems.report && !usingCustomPrompt
+                            ? selectedTpl?.id : null,
         include_summary: sendItems.summary,
         include_chart:   sendItems.chart,
         include_table:   sendItems.table,
@@ -80,6 +100,7 @@ export default function ReportModal({ patient, measurements, onClose }) {
     try {
       const res = await api.post('/messaging/send', {
         patient_id:    patient.id,
+        report_type:   reportKind,
         message:       editedText,
         summary_base64: report?.summary_base64 || null,
         chart_base64:  report?.chart_base64  || null,
@@ -140,6 +161,37 @@ export default function ReportModal({ patient, measurements, onClose }) {
 
           {step === 'compose' ? (
             <>
+              {/* Report kind tabs */}
+              <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
+                <label style={ITEM_STYLE(reportKind === 'standard')} onClick={() => selectKind('standard')}>
+                  <span style={{ fontSize: 18 }}>📈</span>
+                  Standard Report
+                </label>
+                <label style={{
+                  ...ITEM_STYLE(reportKind === 'forecast'),
+                  opacity: measurements.length < 2 ? 0.5 : 1,
+                  cursor: measurements.length < 2 ? 'not-allowed' : 'pointer',
+                }} onClick={() => measurements.length >= 2 && selectKind('forecast')}>
+                  <span style={{ fontSize: 18 }}>🔮</span>
+                  6-Month Forecast
+                  {measurements.length < 2 &&
+                    <span style={{ color: '#a0aec0', fontSize: 11 }}>(2+ visits needed)</span>}
+                </label>
+              </div>
+
+              {reportKind === 'forecast' ? (
+                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0',
+                  borderRadius: 12, padding: '16px 20px', marginBottom: 20, fontSize: 13,
+                  color: '#4a5568', lineHeight: 1.7 }}>
+                  <div style={{ fontWeight: 700, marginBottom: 6, color: '#1a202c', fontSize: 14 }}>
+                    🔮 6-Month Forecast Plan
+                  </div>
+                  Generates a chart projecting the next 6 months under three scenarios (optimistic,
+                  normal, cautious), computed from this patient's actual measurement trend, plus an
+                  AI-written paragraph (Persian) explaining the goal and how to reach it.
+                </div>
+              ) : (
+              <>
               {/* Select what to send */}
               <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0',
                 borderRadius: 12, padding: '16px 20px', marginBottom: 20 }}>
@@ -194,7 +246,7 @@ export default function ReportModal({ patient, measurements, onClose }) {
                   <div className="form-group">
                     <label className="form-label">Report Template</label>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
-                      {templates.map(t => (
+                      {templates.filter(t => t.id !== 'forecast_plan').map(t => (
                         <button key={t.id}
                           className={`btn btn-sm ${selectedTpl?.id === t.id && !customPrompt ? 'btn-primary' : 'btn-ghost'}`}
                           onClick={() => { setSelectedTpl(t); setCustomPrompt(''); }}>
@@ -221,6 +273,8 @@ export default function ReportModal({ patient, measurements, onClose }) {
                       onChange={e => setCustomPrompt(e.target.value)} />
                   </div>
                 </>
+              )}
+              </>
               )}
             </>
           ) : (
@@ -258,10 +312,12 @@ export default function ReportModal({ patient, measurements, onClose }) {
                 <div style={{ marginBottom: 24 }}>
                   <div style={{ fontWeight: 700, color: '#2d3748', marginBottom: 8,
                     fontSize: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    📈 Progress Chart <span style={{ fontWeight: 400, fontSize: 12, color: '#718096' }}>(sent in Persian)</span>
+                    {reportKind === 'forecast'
+                      ? <>🔮 6-Month Weight Forecast <span style={{ fontWeight: 400, fontSize: 12, color: '#718096' }}>(sent in Persian)</span></>
+                      : <>📈 Progress Chart <span style={{ fontWeight: 400, fontSize: 12, color: '#718096' }}>(sent in Persian)</span></>}
                   </div>
                   <img src={`data:image/png;base64,${report.chart_base64}`}
-                    alt="Progress chart"
+                    alt={reportKind === 'forecast' ? '6-month weight forecast chart' : 'Progress chart'}
                     style={{ maxWidth: '100%', borderRadius: 10,
                       border: '1px solid #e2e8f0',
                       boxShadow: '0 4px 16px rgba(0,0,0,0.08)' }} />
@@ -271,7 +327,7 @@ export default function ReportModal({ patient, measurements, onClose }) {
               {sendItems.report && (
                 <div className="form-group">
                   <label className="form-label">
-                    AI Report Text{' '}
+                    {reportKind === 'forecast' ? 'Goal & Forecast Explanation' : 'AI Report Text'}{' '}
                     <span className="text-muted" style={{ fontWeight: 400 }}>
                       (editable before sending — sent in Persian)
                     </span>

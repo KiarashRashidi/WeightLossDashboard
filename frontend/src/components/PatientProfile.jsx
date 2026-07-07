@@ -8,6 +8,7 @@ import { toJalaali } from 'jalaali-js';
 import api from '../services/api';
 import ErrorBoundary from './ErrorBoundary';
 import MeasurementPanel from './MeasurementPanel';
+import MedicalTestsPanel from './MedicalTestsPanel';
 import ReportModal from './ReportModal';
 
 // ─── Jalali helpers (dates shown in Persian calendar, UI labels in English) ───
@@ -90,6 +91,11 @@ function EditPatientModal({ patient, onClose, onSaved }) {
                 <option value="male">Male</option>
                 <option value="female">Female</option>
               </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Target / Ideal Weight (kg) <span className="text-muted">(optional)</span></label>
+              <input className="form-input" type="number" min="30" max="300" step="0.1" value={form.target_weight || ''}
+                onChange={e => setForm(f => ({ ...f, target_weight: e.target.value }))} placeholder="e.g. 75" />
             </div>
             <div className="form-group">
               <label className="form-label">Bale Chat ID</label>
@@ -406,6 +412,7 @@ export default function PatientProfile({ socket }) {
               <h2 style={{ fontSize: 20, fontWeight: 700 }}>{patient.name}</h2>
               <span className="text-muted" style={{ fontSize: 13 }}>
                 {patient.age} yrs · {patient.height_cm} cm · {patient.is_male ? 'Male' : 'Female'}
+                {patient.target_weight && <> · 🎯 Target: {patient.target_weight} kg</>}
                 {patient.bale_chat_id && <> · 📲 Bale linked</>}
               </span>
             </div>
@@ -497,9 +504,9 @@ export default function PatientProfile({ socket }) {
 
       {/* Tabs */}
       <div className="tabs">
-        {['overview', 'measure', 'history'].map(t => (
+        {['overview', 'measure', 'history', 'labs'].map(t => (
           <button key={t} className={`tab-btn ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>
-            {{ overview: '📊 Overview', measure: '⚖️ Measure', history: '📋 History' }[t]}
+            {{ overview: '📊 Overview', measure: '⚖️ Measure', history: '📋 History', labs: '🧪 Medical Tests' }[t]}
           </button>
         ))}
       </div>
@@ -617,6 +624,9 @@ export default function PatientProfile({ socket }) {
           )}
         </div>
       )}
+
+      {/* Medical Tests tab */}
+      {tab === 'labs' && <MedicalTestsPanel patientId={patient.id} />}
     </ErrorBoundary>
   );
 }

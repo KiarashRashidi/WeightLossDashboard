@@ -27,6 +27,7 @@ class Patient(db.Model):
     height_cm = db.Column(db.Float, nullable=False)
     age = db.Column(db.Integer, nullable=False)
     is_male = db.Column(db.Boolean, default=True)
+    target_weight = db.Column(db.Float, nullable=True)
     bale_chat_id = db.Column(db.String(50), unique=True, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     is_active = db.Column(db.Boolean, default=True)
@@ -34,6 +35,11 @@ class Patient(db.Model):
     measurements = db.relationship(
         "Measurement", backref="patient", lazy=True,
         cascade="all, delete-orphan", order_by="Measurement.recorded_at"
+    )
+
+    medical_tests = db.relationship(
+        "MedicalTest", backref="patient", lazy=True,
+        cascade="all, delete-orphan", order_by="MedicalTest.recorded_at"
     )
 
     @property
@@ -49,6 +55,7 @@ class Patient(db.Model):
             "height_cm": self.height_cm,
             "age": self.age,
             "is_male": self.is_male,
+            "target_weight": self.target_weight,
             "bale_chat_id": self.bale_chat_id,
             "created_at": self.created_at.isoformat(),
             "is_active": self.is_active,
@@ -134,6 +141,74 @@ class Measurement(db.Model):
             "body_age": self.body_age,
             "body_type": self.body_type,
             "input_method": self.input_method,
+        }
+
+
+class MedicalTest(db.Model):
+    """Doctor-entered lab/imaging results. Manually recorded, doctor-only —
+    never surfaced to the patient or included in LLM analysis/report prompts."""
+    __tablename__ = "medical_tests"
+
+    id = db.Column(db.Integer, primary_key=True)
+    patient_id = db.Column(db.Integer, db.ForeignKey("patients.id"), nullable=False)
+    recorded_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # Glucose control
+    fbs = db.Column(db.Float)          # Fasting Blood Sugar
+    hba1c = db.Column(db.Float)
+
+    # Kidney function
+    bun = db.Column(db.Float)
+    creatinine = db.Column(db.Float)
+
+    # Liver enzymes
+    alt = db.Column(db.Float)
+    ast = db.Column(db.Float)
+
+    # Pancreatic enzymes
+    lipase = db.Column(db.Float)
+    amylase = db.Column(db.Float)
+
+    # Lipid panel
+    cholesterol_total = db.Column(db.Float)
+    triglycerides = db.Column(db.Float)
+    hdl = db.Column(db.Float)
+    ldl = db.Column(db.Float)
+
+    # Other
+    cbc = db.Column(db.Text)           # Complete Blood Count — narrative result
+    vitamin_d = db.Column(db.Float)
+    b12 = db.Column(db.Float)
+    calcitonin = db.Column(db.Float)
+    liver_gallbladder_ultrasound = db.Column(db.Text)  # Imaging findings
+
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "patient_id": self.patient_id,
+            "recorded_at": self.recorded_at.isoformat(),
+            "fbs": self.fbs,
+            "hba1c": self.hba1c,
+            "bun": self.bun,
+            "creatinine": self.creatinine,
+            "alt": self.alt,
+            "ast": self.ast,
+            "lipase": self.lipase,
+            "amylase": self.amylase,
+            "cholesterol_total": self.cholesterol_total,
+            "triglycerides": self.triglycerides,
+            "hdl": self.hdl,
+            "ldl": self.ldl,
+            "cbc": self.cbc,
+            "vitamin_d": self.vitamin_d,
+            "b12": self.b12,
+            "calcitonin": self.calcitonin,
+            "liver_gallbladder_ultrasound": self.liver_gallbladder_ultrasound,
+            "notes": self.notes,
+            "created_at": self.created_at.isoformat(),
         }
 
 

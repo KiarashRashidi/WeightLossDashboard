@@ -180,6 +180,73 @@ def generate_progress_chart(patient, measurements) -> str | None:
         return None
 
 
+_FORECAST_COLORS = {
+    "optimistic": "#22c55e",
+    "normal":     PALETTE["weight"],
+    "bad":        PALETTE["fat"],
+}
+_FORECAST_LABELS_FA = {
+    "optimistic": "خوش‌بینانه",
+    "normal":     "متعادل",
+    "bad":        "محتاطانه",
+}
+
+
+def generate_forecast_chart(patient, measurements, forecast) -> str | None:
+    """Single-panel chart: historical weight + 3 diverging 6-month scenario projections."""
+    try:
+        dates   = [m.recorded_at for m in measurements]
+        jalali  = [_to_jalali(d) for d in dates]
+        weights = [m.weight for m in measurements]
+
+        fig, ax = plt.subplots(figsize=(10, 6))
+        fig.suptitle(f"پیش‌بینی ۶ ماهه — {patient.name}", fontsize=14, fontweight="bold", y=1.02, color="#1a202c")
+
+        # Historical line
+        ax.plot(range(len(weights)), weights, marker="o", color="#4a5568",
+                linewidth=2.2, markersize=5, zorder=3, label="سوابق")
+
+        last_idx = len(weights) - 1
+        future_x = list(range(last_idx, last_idx + 7))
+        x_labels = list(jalali) + list(forecast["month_labels"])
+
+        for key in ("bad", "normal", "optimistic"):
+            sc = forecast["scenarios"][key]
+            ys = [weights[-1]] + sc["milestones"]
+            ax.plot(future_x, ys, marker="o", linewidth=2.2, markersize=5,
+                    color=_FORECAST_COLORS[key], linestyle="--", zorder=3,
+                    label=_FORECAST_LABELS_FA[key])
+
+        goal = forecast.get("goal_weight")
+        if goal is not None:
+            ax.axhline(goal, color="#a0aec0", linewidth=1, linestyle=":", zorder=1)
+            ax.text(0, goal, " هدف", va="bottom", ha="left", fontsize=8, color="#718096")
+
+        all_x = list(range(len(weights))) + future_x[1:]
+        step = max(1, len(all_x) // 10)
+        idx = list(range(0, len(all_x), step))
+        if idx[-1] != len(all_x) - 1:
+            idx.append(len(all_x) - 1)
+        ax.set_xticks([all_x[i] for i in idx])
+        ax.set_xticklabels([x_labels[i] for i in idx], rotation=35, ha="right", fontsize=8)
+
+        ax.axvline(last_idx, color="#cbd5e0", linewidth=1, linestyle="-", zorder=1)
+        ax.set_ylabel("وزن (kg)")
+        ax.legend(loc="best", fontsize=9, frameon=False)
+
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=130, bbox_inches="tight")
+        plt.close(fig)
+        buf.seek(0)
+        encoded = base64.b64encode(buf.read()).decode("utf-8")
+        logger.info("Forecast chart generated for patient %d.", patient.id)
+        return encoded
+
+    except Exception:
+        logger.exception("Failed to generate forecast chart for patient %d.", patient.id)
+        return None
+
+
 def _plot_line(ax, dates, values, jalali_labels, title, color):
     valid = [(d, v, j) for d, v, j in zip(dates, values, jalali_labels) if v is not None]
     if not valid:

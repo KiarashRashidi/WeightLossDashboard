@@ -28,6 +28,7 @@ def create_app():
 
     from routes.auth_routes import auth_bp
     from routes.patient_routes import patient_bp
+    from routes.medical_test_routes import medical_test_bp
     from routes.bluetooth_routes import bluetooth_bp
     from routes.messaging_routes import messaging_bp
     from routes.bale_webhook import bale_bp
@@ -37,6 +38,7 @@ def create_app():
 
     app.register_blueprint(auth_bp, url_prefix="/api/auth")
     app.register_blueprint(patient_bp, url_prefix="/api/patients")
+    app.register_blueprint(medical_test_bp, url_prefix="/api/patients")
     app.register_blueprint(bluetooth_bp, url_prefix="/api/bluetooth")
     app.register_blueprint(messaging_bp, url_prefix="/api/messaging")
     app.register_blueprint(bale_bp, url_prefix="/api/bale")
@@ -46,6 +48,7 @@ def create_app():
 
     with app.app_context():
         db.create_all()
+        _migrate_schema()
         _seed_admin(app)
         _start_scheduler(app)
         _start_bluetooth_service(app)
@@ -53,6 +56,20 @@ def create_app():
 
     logger.info("SmartWeigh MedDash backend started.")
     return app
+
+
+def _migrate_schema():
+    """Lightweight in-place migration for new columns on existing SQLite tables
+    (db.create_all() only creates missing tables, it never alters existing ones)."""
+    from sqlalchemy import inspect, text
+
+    inspector = inspect(db.engine)
+    if "patients" in inspector.get_table_names():
+        columns = [c["name"] for c in inspector.get_columns("patients")]
+        if "target_weight" not in columns:
+            db.session.execute(text("ALTER TABLE patients ADD COLUMN target_weight FLOAT"))
+            db.session.commit()
+            logger.info("Migrated patients table: added target_weight column.")
 
 
 def _seed_admin(app):
